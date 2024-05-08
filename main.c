@@ -4,7 +4,7 @@
 #include <unistd.h>
 #include <time.h>
 
-#define NUM_THREADS_SENSOR 3
+#define NUM_THREADS_SENSOR 5
 #define NUM_THREADS_ATUADOR 5
 #define ARRAY_LENGTH 1000
 
@@ -35,7 +35,8 @@ void *sensor(void *arg) {
     sleep(sleep_time);
 
     // random data dos sensores.
-    int random_int = rand() % 1000;
+    unsigned int seed = rand();
+    int  random_int = rand_r(&seed) % 1000;
 
     // Mutex para sincronizar.
     pthread_mutex_lock(&mutex);
