@@ -13,7 +13,7 @@ pthread_t threads_atuador[NUM_THREADS_ATUADOR];
 
 // feito para controlar fluxo.
 long sensor_queue[ARRAY_LENGTH];
-int sensor_queue_size = -1;
+int sensor_queue_size = 0;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 
@@ -62,32 +62,28 @@ int main() {
     // simulate processing time
     sleep(1);
 
-    // processar com atuador (para fazer).
-
-    // Mutex para sincronizar
-    pthread_mutex_unlock(&mutex);
-
     // Checking if there are elements in the queue
     if (sensor_queue_size > 0) {
-        // remove o primeiro elemento da esquerda e shifta os outros.
-        for (int position = 0; position < sensor_queue_size - 1; position++) {
-            sensor_queue[position] = sensor_queue[(position + 1)];
-        }
+      // remove o primeiro elemento da esquerda e shifta os outros.
+      for (int position = 0; position < sensor_queue_size - 1; position++) {
+        // Mutex para sincronizar
+        pthread_mutex_lock(&mutex);
+        sensor_queue[position] = sensor_queue[(position + 1)];
+        pthread_mutex_unlock(&mutex);
+      }
 
-        // loop para printar.
-        printf("START\n");
-        for (int position = 0; position < sensor_queue_size - 1; position++) {
-            printf("sensor_queue[%d]: %ld \n", position, sensor_queue[position]);
-        }
-        printf("FINISH\n");
+      // loop para printar.
+      printf("START\n");
+      for (int position = 0; position < sensor_queue_size - 1; position++) {
+        printf("sensor_queue[%d]: %ld \n", position, sensor_queue[position]);
+      }
+      printf("FINISH\n");
 
-        // decrementa o tamanho para salvar-mos a posi;'ao atual do array.
-        sensor_queue_size--;
+      // decrementa o tamanho para salvar-mos a posição atual do array.
+      sensor_queue_size--;
     } else {
       printf("Array is empty, nothing to remove.\n");
     }
-
-    pthread_mutex_unlock(&mutex);
 
   }
 
