@@ -20,7 +20,8 @@ pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 // atuadores
 void *atuador(void *arg) {
   while (1) {
-    // Para fazer
+    sleep(2);
+    printf("simulating\n");
   }
 }
 
@@ -58,12 +59,27 @@ int main() {
     pthread_create(&threads_sensor[thread], NULL, sensor, (void *)thread);
   }
 
+  for (long thread = 0; thread < NUM_THREADS_ATUADOR; thread++) {
+    // cria as threads eternas de atuadores (vão processar os dados que a main os passar).
+    pthread_create(&threads_atuador[thread], NULL, atuador, (void *)thread);
+  }
+
   while (1) {
     // simulate processing time
     sleep(1);
 
     // Checking if there are elements in the queue
     if (sensor_queue_size > 0) {
+      // decida qual atuador pegará o dado.
+      int thread_atuadora = sensor_queue[0] % NUM_THREADS_ATUADOR;
+
+      // random activity dos atuadores.
+      unsigned int seed = rand();
+      int  random_int = rand_r(&seed) % 100;
+      printf("thread_atuadora: %d / nível de atividade: %d\n", thread_atuadora, random_int);
+
+      // more things...
+
       // remove o primeiro elemento da esquerda e shifta os outros.
       for (int position = 0; position < sensor_queue_size - 1; position++) {
         // Mutex para sincronizar
