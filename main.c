@@ -11,17 +11,19 @@
 pthread_t threads_sensor[NUM_THREADS_SENSOR];
 pthread_t threads_atuador[NUM_THREADS_ATUADOR];
 
+// Tabela de atuadores
+int actuators_array[NUM_THREADS_ATUADOR] = {0};
+
 // feito para controlar fluxo.
 long sensor_queue[ARRAY_LENGTH];
 int sensor_queue_size = 0;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
-
 // atuadores
 void *atuador(void *arg) {
   while (1) {
     sleep(2);
-    printf("simulating\n");
+    // printf("simulating\n");
   }
 }
 
@@ -31,7 +33,7 @@ void *sensor(void *arg) {
     // Gerar numero randomico para usar de sleep.
     int sleep_time = (rand() % 5) + 1;
 
-    printf("thread %ld sleeping for %d\n", (long)arg, sleep_time);
+    // printf("thread %ld sleeping for %d\n", (long)arg, sleep_time);
 
     sleep(sleep_time);
 
@@ -42,7 +44,7 @@ void *sensor(void *arg) {
     // Mutex para sincronizar.
     pthread_mutex_lock(&mutex);
 
-    printf("thread %ld generated %d\n", (long)arg, random_int);
+    // printf("thread %ld generated %d\n", (long)arg, random_int);
 
     // salva dados desse sensor
     sensor_queue[sensor_queue_size] = random_int;
@@ -76,7 +78,14 @@ int main() {
       // random activity dos atuadores.
       unsigned int seed = rand();
       int  random_int = rand_r(&seed) % 100;
-      printf("thread_atuadora: %d / nível de atividade: %d\n", thread_atuadora, random_int);
+      printf("thread_atuadora: %d\n", thread_atuadora);
+
+      // Update the actuators struct with thread IDs and activity levels
+      actuators_array[thread_atuadora] = random_int;
+
+      for (int thread = 0; thread < NUM_THREADS_ATUADOR; thread++) {
+        printf("Actuator[%d]: activity_level=%d\n", thread, actuators_array[thread]);
+      }
 
       // more things...
 
