@@ -11,13 +11,15 @@
 pthread_t threads_sensor[NUM_THREADS_SENSOR];
 pthread_t threads_atuador[NUM_THREADS_ATUADOR];
 
-// Tabela de atuadores.
-int actuators_array[NUM_THREADS_ATUADOR] = {0};
+// Define a struct to hold multiple arguments
+struct thread_args {
+  int id;
+  int activity_level;
+};
 
 // Estrutura para representar uma tarefa do atuador.
-typedef struct
-{
-  int id;             // ID do atuador
+typedef struct {
+  int id; // ID do atuador
   int activity_level; // Nível de atividade a ser definido
 } AtuadorTask;
 
@@ -25,8 +27,7 @@ typedef struct
 AtuadorTask atuador_tasks[ARRAY_LENGTH];
 int atuador_task_size = 0;
 
-// Mutexes
-pthread_mutex_t actuators_mutex = PTHREAD_MUTEX_INITIALIZER;
+// Mutexe para controlar o acesso à fila de dados dos sensores.
 pthread_mutex_t sensor_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Mutex para controlar o acesso à fila de tarefas dos atuadores.
@@ -37,28 +38,32 @@ long sensor_queue[ARRAY_LENGTH];
 int sensor_queue_size = 0;
 
 // Função a ser executada por cada thread do pool de threads dos atuadores.
-void *atuadorThread(void *arg)
-{
-  while (1)
-  {
+void *atuadorThread(void *arg) {
+  while (1) {
     AtuadorTask task;
 
     // Bloqueia o acesso à fila de tarefas dos atuadores.
     pthread_mutex_lock(&atuador_task_mutex);
 
     // Verifica se há tarefas pendentes na fila.
-    if (atuador_task_size > 0)
-    {
+    if (atuador_task_size > 0) {
       // Remove a primeira tarefa da fila.
       task = atuador_tasks[0];
-      for (int i = 0; i < atuador_task_size - 1; i++)
-      {
-        atuador_tasks[i] = atuador_tasks[i + 1];
-      }
-      atuador_task_size--;
-    }
-    else
-    {
+
+      if (task.id == arg) {
+        for (int i = 0; i < atuador_task_size - 1; i++) {
+          atuador_tasks[i] = atuador_tasks[i + 1];
+        }
+        atuador_task_size--;
+
+        // printf("atuador_task_size: %d\n", atuador_task_size);  
+      } else {
+        // Se não houver tarefas pendentes, libera o acesso à fila e dorme até que uma nova tarefa seja adicionada.
+        pthread_mutex_unlock(&atuador_task_mutex);
+        sleep(1);
+        continue;
+      }      
+    } else {
       // Se não houver tarefas pendentes, libera o acesso à fila e dorme até que uma nova tarefa seja adicionada.
       pthread_mutex_unlock(&atuador_task_mutex);
       sleep(1);
@@ -76,10 +81,8 @@ void *atuadorThread(void *arg)
 }
 
 // Função a ser executada por cada thread dos sensores.
-void *sensor(void *arg)
-{
-  while (1)
-  {
+void *sensor(void *arg) {
+  while (1) {
     // Gerar número aleatório para usar como tempo de espera.
     int sleep_time = (rand() % 5) + 1;
     sleep(sleep_time);
@@ -99,71 +102,85 @@ void *sensor(void *arg)
 }
 
 // Subtask 1 do atuador: mudar o nível de atividade do atuador.
-int changeActivityLevel(int id, int activity_level)
-{
+int changeActivityLevel(int id, int activity_level) {
   // Verificar se a subtask vai falhar (20% de chance de falha).
-  if (rand() % 5 == 0)
-  {
-    printf("Falha: Atuador %d\n", id);
-    return 0; // Retorna 0 para indicar falha
-  }
-  else
-  {
-    // Bloquear o acesso à tabela de atuadores.
-    pthread_mutex_lock(&actuators_mutex);
-    actuators_array[id] = activity_level;
-    pthread_mutex_unlock(&actuators_mutex);
-    return 1; // Retorna 1 para indicar sucesso
-  }
-}
+  if ((rand() % 5) == 0) return 1; // Retorna 0 para indicar falha
 
-// Subtask 2 do atuador: enviar mensagem para o painel.
-void sendToPanel(int id, int activity_level)
-{
-  // Verificar se a subtask vai falhar (20% de chance de falha).
-  if (rand() % 5 != 0)
-  {
-    printf("Alterando: Atuador %d com valor %d\n", id, activity_level);
-    sleep(1); // Esperar um segundo antes de imprimir outra coisa.
-  }
+  // printf("esperando atuador alterar a atividade na thread: %d\n", id);
+  sleep(2 + rand() % 2);
+  // printf("ALTERADO na thread: %d\n", id);
+  return 0; // Retorna 0 para indicar sucesso
 }
 
 // Função a ser executada pela thread da subtask de mudança de nível de atividade.
-void *changeActivityLevelThread(void *arg)
-{
-  int id = *((int *)arg);
-  int activity_level = actuators_array[id];
+void *changeActivityLevelThread(void *arg) {
+  // Cast the argument back to the correct type
+  struct thread_args *args = (struct thread_args *)arg;
+  int id = args->id;
+  int activity_level = args->activity_level;
 
-  return (void *)(long)changeActivityLevel(id, activity_level);
+  return (void *)(int)changeActivityLevel(id, activity_level);
+}
+
+// Subtask 2 do atuador: enviar mensagem para o painel.
+void *sendToPanelThread(void*arg) {
+  // Cast the argument back to the correct type
+  struct thread_args *args = (struct thread_args *)arg;
+  int id = args->id;
+  int activity_level = args->activity_level;
+
+  return (void *)(int)sendToPanel(id, activity_level);
+}
+
+// Subtask 2 do atuador: enviar mensagem para o painel.
+int sendToPanel(int id, int activity_level) {
+  // Verificar se a subtask vai falhar (20% de chance de falha).
+  if ((rand() % 5) == 0) return 1; // Retorna 1 para indicar falha
+
+  printf("Alterando: Atuador %d com valor %d\n", id, activity_level);
+  sleep(1); // Esperar um segundo antes de imprimir outra coisa.
+  return 0; // Retorna 0 para indicar sucesso
 }
 
 // Função para executar a tarefa do atuador com Fork-Join.
-void execAtuadorTask(int id, int activity_level)
-{
-  int result_change = 0;
-  pthread_t thread_change;
+void execAtuadorTask(int id, int activity_level) {
+  pthread_t activity_change;
+  int activity_change_result;
+
+  pthread_t painel_change;
+  int painel_result;
+
+  // Create a struct to hold the arguments
+  struct thread_args args = {id, activity_level};
 
   // Criar uma thread para a subtask de mudança de nível de atividade.
-  pthread_create(&thread_change, NULL, changeActivityLevelThread, (void *)&id);
+  pthread_create(&activity_change, NULL, changeActivityLevelThread, (void *)&args);
 
-  // Executar a subtask de enviar mudança para o painel.
-  sendToPanel(id, activity_level);
+  // Criar uma thread para a subtask de printar no painel.
+  pthread_create(&painel_change, NULL, sendToPanelThread, (void *)&args); 
+
+  // printf("esperando subtasks terminarem na thread: %d\n", id);
 
   // Esperar pela conclusão da subtask de mudança de nível de atividade.
-  pthread_join(thread_change, (void **)&result_change);
+  pthread_join(activity_change, (void **)&activity_change_result);
+  pthread_join(painel_change, (void **)&painel_result);
+
+  // printf("JOIN TERMINADO na thread: %d\n", id);
+
+  // printf("subtask PAINEL result: %d\n", painel_result);
+  // printf("subtasks CHANGE ACTIVITY result: %d\n", activity_change_result);
+  // printf("LAST RESULT: %d\n", activity_change_result + painel_result);
 
   // Se uma das subtarefas falhou, exibir uma mensagem de falha no painel.
-  if (result_change == 0)
-  {
+  if (activity_change_result + painel_result != 0) {
     printf("Falha: Atuador %d\n", id);
   }
 }
 
-int main()
-{
+int main() {
   // Inicializar o pool de threads dos atuadores.
-  for (int i = 0; i < NUM_THREADS_ATUADOR; i++) {
-    pthread_create(&threads_atuador[i], NULL, atuadorThread, NULL);
+  for (int thread = 0; thread < NUM_THREADS_ATUADOR; thread++) {
+    pthread_create(&threads_atuador[thread], NULL, atuadorThread, (void *)thread);
   }
 
   for (long thread = 0; thread < NUM_THREADS_SENSOR; thread++) {
@@ -171,11 +188,9 @@ int main()
     pthread_create(&threads_sensor[thread], NULL, sensor, (void *)thread);
   }
 
-  while (1)
-  {
+  while (1) {
     // Verificar se há dados na fila de sensores.
-    if (sensor_queue_size > 0)
-    {
+    if (sensor_queue_size > 0) {
       // Decidir qual atuador pegará o dado.
       int thread_atuadora = sensor_queue[0] % NUM_THREADS_ATUADOR;
 
@@ -183,32 +198,34 @@ int main()
       int random_int = rand() % 100;
       // printf("thread_atuadora: %d\n", thread_atuadora);
 
-      // Atualizar a tabela de atuadores com os níveis de atividade.
-      actuators_array[thread_atuadora] = random_int;
-
       // Enviar tarefa para o atuador.
       pthread_mutex_lock(&atuador_task_mutex);
       atuador_tasks[atuador_task_size].id = thread_atuadora;
       atuador_tasks[atuador_task_size].activity_level = random_int;
       atuador_task_size++;
+
+      // printf("START PRINTING\n");
+      // for (int i = 0; i < atuador_task_size - 1; i++) {
+      // printf("atuador_tasks[%d]: id: %d // activity: %d \n", i, atuador_tasks[i].id, atuador_tasks[i].activity_level);
+      // }
+
+      // printf("FINISH PRINTING\n");
       pthread_mutex_unlock(&atuador_task_mutex);
 
       // Remover o dado da fila de sensores.
       pthread_mutex_lock(&sensor_mutex);
-      printf("START PRINTING\n");
+      // printf("START PRINTING\n");
       for (int position = 0; position < sensor_queue_size - 1; position++) {
         sensor_queue[position] = sensor_queue[position + 1];
-        printf("sensor_queue[%d]: %ld\n", position, sensor_queue[position]);
+        // printf("sensor_queue[%d]: %ld\n", position, sensor_queue[position]);
       }
-      printf("FINISH PRINTING\n");
+      // printf("FINISH PRINTING\n");
       sensor_queue_size--;
       pthread_mutex_unlock(&sensor_mutex);
-    }
-    else
-    {
+    } else {
       // Cooldown para caso não haja dados não precisar processar desnecessariamente.
       sleep(1);
-      printf("Array is empty, nothing to remove.\n");
+      // printf("Array is empty, nothing to remove.\n");
     }
   }
 
