@@ -24,6 +24,9 @@ typedef struct {
 } AtuadorTask;
 
 // Fila para armazenar as tarefas dos atuadores.
+AtuadorTask atuadores[NUM_THREADS_ATUADOR];
+
+// Fila para armazenar as tarefas dos atuadores.
 AtuadorTask atuador_tasks[ARRAY_LENGTH];
 int atuador_task_size = 0;
 
@@ -33,24 +36,36 @@ pthread_mutex_t sensor_mutex = PTHREAD_MUTEX_INITIALIZER;
 // Mutex para controlar o acesso à fila de tarefas dos atuadores.
 pthread_mutex_t atuador_task_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+// Mutex para controlar o acesso as threads dos atuadores.
+static pthread_mutex_t atuador_thread_mutex[NUM_THREADS_ATUADOR];
+// pthread_mutex_t atuador_task_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// Mutex para controlar o acesso à fila de tarefas dos atuadores.
+static pthread_mutex_t atuador_mutex[NUM_THREADS_ATUADOR];
+// pthread_mutex_t atuador_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+
+
 // Feito para controlar fluxo.
 long sensor_queue[ARRAY_LENGTH];
 int sensor_queue_size = 0;
 
 // Função a ser executada por cada thread do pool de threads dos atuadores.
-void *atuadorThread(void *arg) {
+void *atuadorThread(void *arg) { //Argumento é o id
+
+  int id = strtol(arg, NULL, 10);
   while (1) {
     AtuadorTask task;
 
     // Bloqueia o acesso à fila de tarefas dos atuadores.
-    pthread_mutex_lock(&atuador_task_mutex);
+    pthread_mutex_lock(&atuador_thread_mutex[id]);
 
     // Verifica se há tarefas pendentes na fila.
     if (atuador_task_size > 0) {
       // Remove a primeira tarefa da fila.
       task = atuador_tasks[0];
 
-      if (task.id == arg) {
+      if (task.id == id) {
         for (int i = 0; i < atuador_task_size - 1; i++) {
           atuador_tasks[i] = atuador_tasks[i + 1];
         }
@@ -59,19 +74,16 @@ void *atuadorThread(void *arg) {
         // printf("atuador_task_size: %d\n", atuador_task_size);  
       } else {
         // Se não houver tarefas pendentes, libera o acesso à fila e dorme até que uma nova tarefa seja adicionada.
-        pthread_mutex_unlock(&atuador_task_mutex);
+        pthread_mutex_unlock(&atuador_thread_mutex[id]);
         sleep(1);
         continue;
       }      
     } else {
       // Se não houver tarefas pendentes, libera o acesso à fila e dorme até que uma nova tarefa seja adicionada.
-      pthread_mutex_unlock(&atuador_task_mutex);
+      pthread_mutex_unlock(&atuador_thread_mutex[id]);
       sleep(1);
       continue;
     }
-
-    // Libera o acesso à fila de tarefas dos atuadores.
-    pthread_mutex_unlock(&atuador_task_mutex);
 
     // Executa a tarefa do atuador.
     execAtuadorTask(task.id, task.activity_level);
@@ -106,8 +118,21 @@ int changeActivityLevel(int id, int activity_level) {
   // Verificar se a subtask vai falhar (20% de chance de falha).
   if ((rand() % 5) == 0) return 1; // Retorna 0 para indicar falha
 
-  // printf("esperando atuador alterar a atividade na thread: %d\n", id);
+  pthread_mutex_lock(&atuador_mutex[id]);
+  // Mudando activity level do atuador. 
+  atuador_tasks[id].activity_level = activity_level;
+
+  printf("esperando atuador alterar a atividade na thread: %d\n", id);
+  printf("atuador_tasks[%d] CHANGED: %d \n", id, atuador_tasks[id].activity_level);
+
   sleep(2 + rand() % 2);
+
+  // Voltando ao normal após 2 segundinhos.
+  atuador_tasks[id].activity_level = 0;
+  printf("atuador_tasks[%d] CHANGED: %d \n", id, atuador_tasks[id].activity_level);
+
+  pthread_mutex_unlock(&atuador_mutex[id]);
+
   // printf("ALTERADO na thread: %d\n", id);
   return 0; // Retorna 0 para indicar sucesso
 }
@@ -175,11 +200,23 @@ void execAtuadorTask(int id, int activity_level) {
   if (activity_change_result + painel_result != 0) {
     printf("Falha: Atuador %d\n", id);
   }
+  // Libera o acesso à fila de tarefas do atuador.
+  pthread_mutex_unlock(&atuador_thread_mutex[id]);
 }
 
 int main() {
   // Inicializar o pool de threads dos atuadores.
   for (int thread = 0; thread < NUM_THREADS_ATUADOR; thread++) {
+    // Cria array com a representçaõ física de cada atuador.
+    AtuadorTask atuador;
+    atuador.id = thread;
+    atuador.activity_level = 0;
+    atuadores[thread] = atuador;
+    printf("atuadores[%d] // id: %d // activity_level: %d\n", thread, atuador.id, atuador.activity_level);
+
+    pthread_mutex_init(&atuador_thread_mutex[thread], NULL);
+    pthread_mutex_init(&atuador_mutex[thread], NULL);
+
     pthread_create(&threads_atuador[thread], NULL, atuadorThread, (void *)thread);
   }
 
