@@ -183,7 +183,6 @@ void execAtuadorTask(int id, int activity_level) {
   } else {
     pthread_mutex_lock(&counter_mutex);
     counter++;
-    printf("%d\n", counter);
     pthread_mutex_unlock(&counter_mutex);
   }
   // Libera o acesso à fila de tarefas do atuador.
