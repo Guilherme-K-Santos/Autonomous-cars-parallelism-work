@@ -1,11 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <time.h>
 
-#define NUM_THREADS_SENSOR 20
-#define NUM_THREADS_ATUADOR 10
+#define NUM_THREADS_SENSOR 50
+#define NUM_THREADS_ATUADOR 20
 #define ARRAY_LENGTH 100
 
 pthread_t threads_sensor[NUM_THREADS_SENSOR];
@@ -44,6 +45,12 @@ static pthread_mutex_t atuador_mutex[NUM_THREADS_ATUADOR];
 long sensor_queue[ARRAY_LENGTH];
 int sensor_queue_size = 0;
 
+// Counter and timers for tests.
+int counter = 0;
+pthread_mutex_t counter_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+time_t start_time;
+
 // Função a ser executada por cada thread do pool de threads dos atuadores.
 void *atuadorThread(void *arg) {
   int id = (intptr_t)arg;
@@ -51,7 +58,7 @@ void *atuadorThread(void *arg) {
     AtuadorTask task;
 
     // Verifica se há tarefas psndentes na fila.
-    pthread_mutex_lock(&atuador_task_mutex); // Mudança: Adicionada sincronização ao acessar a fila de tarefas
+    pthread_mutex_lock(&atuador_task_mutex);
     if (atuador_task_size > 0) {
       // Remove a primeira tarefa da fila.
       task = atuador_tasks[0];
@@ -62,26 +69,18 @@ void *atuadorThread(void *arg) {
         }
         atuador_task_size--;
 
-        pthread_mutex_unlock(&atuador_task_mutex); // Mudança: Desbloqueio da fila de tarefas
-      }
-      else {
-        pthread_mutex_unlock(&atuador_task_mutex); // Mudança: Desbloqueio da fila de tarefas
-        // Se não houver tarefas pendentes, libera o acesso à fila e dorme até que uma nova tarefa seja adicionada.
-        // pthread_mutex_unlock(&atuador_thread_mutex[id]); // Mudança: Desbloqueio da fila de threads
-        sleep(1);
+        pthread_mutex_unlock(&atuador_task_mutex); // Desbloqueio da fila de tarefas
+      } else {
+        pthread_mutex_unlock(&atuador_task_mutex); // Desbloqueio da fila de tarefas
         continue;
       }
-    }
-    else {
-      pthread_mutex_unlock(&atuador_task_mutex); // Mudança: Desbloqueio da fila de tarefas
-      // Se não houver tarefas pendentes, libera o acesso à fila e dorme até que uma nova tarefa seja adicionada.
-      pthread_mutex_unlock(&atuador_thread_mutex[id]); // Mudança: Desbloqueio da fila de threads
-      sleep(1);
+    } else {
+      pthread_mutex_unlock(&atuador_task_mutex); // Desbloqueio da fila de tarefas
       continue;
     }
 
     // Bloqueia o acesso à fila de tarefas dos atuadores.
-    pthread_mutex_lock(&atuador_thread_mutex[id]); // Adição
+    pthread_mutex_lock(&atuador_thread_mutex[id]);
 
     // Executa a tarefa do atuador.
     execAtuadorTask(task.id, task.activity_level);
@@ -116,7 +115,7 @@ int changeActivityLevel(int id, int activity_level) {
   // Verificar se a subtask vai falhar (20% de chance de falha).
   if ((rand() % 5) == 0) return 1; // Retorna 1 para indicar falha
 
-  pthread_mutex_lock(&atuador_mutex[id]); // Mudança: Adição de mutex para sincronizar acesso aos dados dos atuadores
+  pthread_mutex_lock(&atuador_mutex[id]);
   // Mudando activity level do atuador.
   atuadores[id].activity_level = activity_level;
 
@@ -125,7 +124,7 @@ int changeActivityLevel(int id, int activity_level) {
   // Voltando ao normal após 2 segundinhos.
   atuadores[id].activity_level = 0;
 
-  pthread_mutex_unlock(&atuador_mutex[id]); // Mudança: Desbloqueio do mutex
+  pthread_mutex_unlock(&atuador_mutex[id]); // Desbloqueio do mutex
 
   return 0; // Retorna 0 para indicar sucesso
 }
@@ -181,20 +180,26 @@ void execAtuadorTask(int id, int activity_level) {
   // Se uma das subtarefas falhou, exibir uma mensagem de falha no painel.
   if (activity_change_result + painel_result != 0) {
     printf("Falha: Atuador %d\n", id);
+  } else {
+    pthread_mutex_lock(&counter_mutex);
+    counter++;
+    printf("%d\n", counter);
+    pthread_mutex_unlock(&counter_mutex);
   }
   // Libera o acesso à fila de tarefas do atuador.
-  pthread_mutex_unlock(&atuador_thread_mutex[id]); // Mudança: Liberação do mutex da thread do atuador
+  pthread_mutex_unlock(&atuador_thread_mutex[id]); // Liberação do mutex da thread do atuador
 }
 
 int main() {
   srand(time(NULL));
+  start_time = time(NULL);
 
   // Inicializar o pool de threads dos atuadores.
   for (int thread = 0; thread < NUM_THREADS_ATUADOR; thread++) {
     AtuadorTask atuador = {thread, 0};
     atuadores[thread] = atuador;
     pthread_mutex_init(&atuador_thread_mutex[thread], NULL);
-    pthread_mutex_init(&atuador_mutex[thread], NULL); // Mudança: Inicialização dos mutexes
+    pthread_mutex_init(&atuador_mutex[thread], NULL); // Inicialização dos mutexes
 
     pthread_create(&threads_atuador[thread], NULL, atuadorThread, (void *)(intptr_t)thread);
   }
@@ -204,7 +209,7 @@ int main() {
     pthread_create(&threads_sensor[thread], NULL, sensor, (void *)(intptr_t)thread);
   }
 
-  while (1) {
+  while (counter < 100) {
     // Verificar se há dados na fila de sensores.
     pthread_mutex_lock(&sensor_mutex);
     if (sensor_queue_size > 0) {
@@ -215,7 +220,7 @@ int main() {
       int random_int = rand() % 100;
 
       // Enviar tarefa para o atuador.
-      pthread_mutex_lock(&atuador_task_mutex); // Mudança: Sincronização ao adicionar tarefa na fila
+      pthread_mutex_lock(&atuador_task_mutex); // Sincronização ao adicionar tarefa na fila
       atuador_tasks[atuador_task_size].id = thread_atuadora;
       atuador_tasks[atuador_task_size].activity_level = random_int;
       atuador_task_size++;
@@ -228,10 +233,11 @@ int main() {
       sensor_queue_size--;
     }
     pthread_mutex_unlock(&sensor_mutex);
-
-    // Cooldown para caso não haja dados, não precisar processar desnecessariamente.
-    sleep(1);
   }
+
+  time_t end_time = time(NULL);
+  double elapsed_seconds = difftime(end_time, start_time);
+  printf("Program Finished. Elapsed time: %.2f seconds\n", elapsed_seconds);
 
   return 0;
 }
